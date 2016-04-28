@@ -72,11 +72,9 @@ class PagerdutyHandler < Sensu::Handler
   def contexts
       if @contexts.nil?
         c = @event['client']['contexts'] || Array.new
-        c.concat(@event['check']['contexts'])
-        @contexts = c
-      else
-        @contexts
+        @contexts = c.concat(@event['check']['contexts'])
       end
+      @contexts
   end
 
   def handle(pd_client = nil)
