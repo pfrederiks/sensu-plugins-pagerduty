@@ -56,22 +56,53 @@ class PagerdutyHandler < Sensu::Handler
       end
   end
 
+  def new_pagerduty
+      s = settings[json_config]
+      if s['proxy_host']
+          Pagerduty.new(api_key,
+                        proxy_host: s['proxy_host'],
+                        proxy_port: s['proxy_port'],
+                        proxy_username: s['proxy_username'],
+                        proxy_password: s['[proxy_password'])
+      else
+          Pagerduty.new(api_key)
+      end
+  end
+
+  def contexts
+      if @contexts.nil?
+        c = @event['client']['contexts'] || Array.new
+        c.concat(@event['check']['contexts'])
+        @contexts = c
+      else
+        @contexts
+      end
+  end
+
   def handle(pd_client = nil)
     incident_key_prefix = settings[json_config]['incident_key_prefix']
     description_prefix = settings[json_config]['description_prefix']
     begin
       timeout(5) do
-        pagerduty = pd_client || Pagerduty.new(api_key)
+        pagerduty = pd_client || new_pagerduty
 
         begin
           case @event['action']
           when 'create'
-            pagerduty.trigger([description_prefix, event_summary].compact.join(' '),
-                              incident_key: [incident_key_prefix, incident_key].compact.join(''),
-                              details: @event)
+            hashargs = Hash.new
+            hashargs[:details] = @event['check']
+            hashargs[:incident_key] = [incident_key_prefix, incident_key].compact.join('')
+            hashargs[:client] = @event['client']['name']
+            if @event['client']['url']
+                hashargs[:client_url]= @event['client']['url']
+            end
+            if contexts
+                hashargs[:contexts] = contexts
+            end
+            pagerduty.trigger([description_prefix, event_summary].compact.join(' '), hashargs)
           when 'resolve'
             pagerduty.get_incident([incident_key_prefix, incident_key].compact.join('')).resolve(
-              [description_prefix, event_summary].compact.join(' '), @event)
+              [description_prefix, event_summary].compact.join(' '), @event['check'])
           end
           puts 'pagerduty -- ' + @event['action'].capitalize + 'd incident -- ' + incident_key
         rescue Net::HTTPServerException => error
